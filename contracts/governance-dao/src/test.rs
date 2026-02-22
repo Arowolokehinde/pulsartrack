@@ -13,7 +13,7 @@ fn test_initialize() {
     let admin = Address::generate(&env);
     let token = Address::generate(&env);
 
-    client.initialize(&admin, &token, &3600u32, &1000i128, &5000u32, &100i128);
+    client.initialize(&admin, &token, &3600u32, &1000u32, &5000u32, &100i128);
 }
 
 #[test]
@@ -28,8 +28,8 @@ fn test_initialize_twice() {
     let admin = Address::generate(&env);
     let token = Address::generate(&env);
 
-    client.initialize(&admin, &token, &3600u32, &1000i128, &5000u32, &100i128);
-    client.initialize(&admin, &token, &3600u32, &1000i128, &5000u32, &100i128);
+    client.initialize(&admin, &token, &3600u32, &1000u32, &5000u32, &100i128);
+    client.initialize(&admin, &token, &3600u32, &1000u32, &5000u32, &100i128);
 }
 
 #[test]
@@ -44,5 +44,5 @@ fn test_initialize_non_admin_fails() {
     let token = Address::generate(&env);
 
     // This should panic because admin didn't authorize it and we haven't mocked it
-    client.initialize(&admin, &token, &3600u32, &1000i128, &5000u32, &100i128);
+    client.initialize(&admin, &token, &3600u32, &1000u32, &5000u32, &100i128);
 }
