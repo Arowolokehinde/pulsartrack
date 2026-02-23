@@ -37,7 +37,7 @@ router.get('/network', async (_req: Request, res: Response) => {
 router.get('/account/:address', async (req: Request, res: Response) => {
   try {
     const { address } = req.params;
-    const account = await getAccountDetails(address);
+    const account = await getAccountDetails(address as string);
     if (!account) {
       return res.status(404).json({ error: 'Account not found or not funded' });
     }
@@ -52,7 +52,7 @@ router.get('/account/:address/transactions', async (req: Request, res: Response)
   try {
     const { address } = req.params;
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 200);
-    const txs = await getAccountTransactions(address, limit);
+    const txs = await getAccountTransactions(address as string, limit);
     res.json({ transactions: txs, count: txs.length });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

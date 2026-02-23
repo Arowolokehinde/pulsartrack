@@ -79,7 +79,7 @@ router.post('/:auctionId/bid', requireAuth, validate({
 }), async (req: Request, res: Response) => {
   try {
     const address = (req as any).stellarAddress;
-    const auctionId = parseInt(req.params.auctionId);
+    const auctionId = parseInt(req.params.auctionId as string);
     const { campaignId, amountStroops } = req.body;
 
     const { rows } = await pool.query(

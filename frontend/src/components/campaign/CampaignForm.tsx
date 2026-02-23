@@ -44,7 +44,7 @@ export function CampaignForm({ onSuccess, onCancel }: CampaignFormProps) {
         contentId: data.contentId,
         budgetXlm: budget,
         dailyBudgetXlm: data.dailyBudgetXlm ? parseFloat(data.dailyBudgetXlm) : budget / 30,
-        durationDays: data.durationDays,
+        durationDays: data.durationDays as number,
       });
       onSuccess?.((result as any)?.result || 0);
       reset();
