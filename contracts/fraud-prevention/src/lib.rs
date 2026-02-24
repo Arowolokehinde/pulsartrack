@@ -57,6 +57,7 @@ pub enum DataKey {
     ViewerRateLimit(Address, u64),
     SuspiciousActivity(Address),
     VerificationCache(u64, u64),
+    AuthorizedOracle(Address),
 }
 
 // ============================================================
@@ -119,6 +120,28 @@ impl FraudPreventionContract {
         env.storage().instance().set(&DataKey::EscrowVault, &vault);
     }
 
+    pub fn add_oracle(env: Env, admin: Address, oracle: Address) {
+        env.storage().instance().extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+        admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if admin != stored_admin {
+            panic!("unauthorized");
+        }
+        let _ttl_key = DataKey::AuthorizedOracle(oracle.clone());
+        env.storage().persistent().set(&_ttl_key, &true);
+        env.storage().persistent().extend_ttl(&_ttl_key, PERSISTENT_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+    }
+
+    pub fn remove_oracle(env: Env, admin: Address, oracle: Address) {
+        env.storage().instance().extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+        admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if admin != stored_admin {
+            panic!("unauthorized");
+        }
+        env.storage().persistent().remove(&DataKey::AuthorizedOracle(oracle));
+    }
+
     /// Verify an ad view
     pub fn verify_view(
         env: Env,
@@ -141,33 +164,20 @@ impl FraudPreventionContract {
             .get(&DataKey::MaxViewsPerPeriod)
             .unwrap_or(10);
 
+        let max_views: u64 = env.storage().instance().get(&DataKey::MaxViewsPerPeriod).unwrap_or(10);
         if view_count >= max_views {
             panic!("rate limit exceeded");
         }
 
-        // Generate view ID from campaign + publisher + viewer + timestamp
         let view_id = Self::_generate_view_id(&env, campaign_id, &publisher, &viewer);
-
-        // Check for duplicate view
-        if env
-            .storage()
-            .persistent()
-            .has(&DataKey::ViewRecord(view_id.clone()))
-        {
+        if env.storage().persistent().has(&DataKey::ViewRecord(view_id.clone())) {
             panic!("duplicate view");
         }
 
-        // Calculate verification score
         let score = Self::_calculate_score(&env, campaign_id, &publisher, &proof_data);
-        let threshold: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::VerificationThreshold)
-            .unwrap_or(80);
-
+        let threshold: u32 = env.storage().instance().get(&DataKey::VerificationThreshold).unwrap_or(80);
         let verified = score >= threshold;
 
-        // Record view
         let record = ViewRecord {
             campaign_id,
             publisher: publisher.clone(),
@@ -186,7 +196,6 @@ impl FraudPreventionContract {
         );
         env.storage().temporary().set(&rate_key, &(view_count + 1));
 
-        // Update verification cache
         let current_day = env.ledger().timestamp() / 86_400;
         let cache_key = DataKey::VerificationCache(campaign_id, current_day);
         let mut cache: VerificationCache =
@@ -206,27 +215,15 @@ impl FraudPreventionContract {
         } else {
             cache.rejected_views += 1;
         }
-        cache.average_score = ((cache.average_score as u64 * (cache.total_views - 1)
-            + score as u64)
-            / cache.total_views) as u32;
-
+        cache.average_score = ((cache.average_score as u64 * (cache.total_views - 1) + score as u64) / cache.total_views) as u32;
         env.storage().temporary().set(&cache_key, &cache);
 
         if verified {
-            let counter: u64 = env
-                .storage()
-                .instance()
-                .get(&DataKey::VerifyCounter)
-                .unwrap_or(0);
-            env.storage()
-                .instance()
-                .set(&DataKey::VerifyCounter, &(counter + 1));
+            let counter: u64 = env.storage().instance().get(&DataKey::VerifyCounter).unwrap_or(0);
+            env.storage().instance().set(&DataKey::VerifyCounter, &(counter + 1));
         }
 
-        env.events().publish(
-            (symbol_short!("view"), symbol_short!("verified")),
-            (campaign_id, publisher, verified),
-        );
+        env.events().publish((symbol_short!("view"), symbol_short!("verified")), (campaign_id, publisher, verified));
 
         if !verified {
             panic!("verification failed");
@@ -287,7 +284,6 @@ impl FraudPreventionContract {
         );
     }
 
-    /// Admin: clear suspicious flag
     pub fn clear_flag(env: Env, admin: Address, publisher: Address) {
         env.storage()
             .instance()
@@ -297,13 +293,9 @@ impl FraudPreventionContract {
         if admin != stored_admin {
             panic!("unauthorized");
         }
-
-        env.storage()
-            .persistent()
-            .remove(&DataKey::SuspiciousActivity(publisher));
+        env.storage().persistent().remove(&DataKey::SuspiciousActivity(publisher));
     }
 
-    /// Admin: update verification threshold
     pub fn set_threshold(env: Env, admin: Address, threshold: u32) {
         env.storage()
             .instance()
@@ -316,29 +308,20 @@ impl FraudPreventionContract {
         if threshold < 50 || threshold > 100 {
             panic!("invalid threshold");
         }
-        env.storage()
-            .instance()
-            .set(&DataKey::VerificationThreshold, &threshold);
+        env.storage().instance().set(&DataKey::VerificationThreshold, &threshold);
     }
-
-    // ============================================================
-    // Read-Only Functions
-    // ============================================================
 
     pub fn get_verification_stats(env: Env, campaign_id: u64) -> VerificationCache {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
         let current_day = env.ledger().timestamp() / 86_400;
-        env.storage()
-            .temporary()
-            .get(&DataKey::VerificationCache(campaign_id, current_day))
-            .unwrap_or(VerificationCache {
-                total_views: 0,
-                verified_views: 0,
-                rejected_views: 0,
-                average_score: 0,
-            })
+        env.storage().temporary().get(&DataKey::VerificationCache(campaign_id, current_day)).unwrap_or(VerificationCache {
+            total_views: 0,
+            verified_views: 0,
+            rejected_views: 0,
+            average_score: 0,
+        })
     }
 
     pub fn get_suspicious_status(env: Env, publisher: Address) -> Option<SuspiciousActivity> {
@@ -387,12 +370,22 @@ impl FraudPreventionContract {
     ) -> BytesN<32> {
         // Create a deterministic ID from campaign+publisher+viewer+timestamp
         let mut data = Bytes::new(env);
-        // Combine relevant data - use campaign_id bytes
         let campaign_bytes = campaign_id.to_be_bytes();
         for b in campaign_bytes.iter() {
             data.push_back(*b);
         }
         env.crypto().sha256(&data).into()
+    }
+
+    fn _require_admin_or_oracle(env: &Env, caller: &Address) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if caller == &admin {
+            return;
+        }
+        let is_oracle = env.storage().persistent().get(&DataKey::AuthorizedOracle(caller.clone())).unwrap_or(false);
+        if !is_oracle {
+            panic!("unauthorized - only admin or oracle can flag publishers");
+        }
     }
 
     fn _calculate_score(
@@ -417,36 +410,39 @@ impl FraudPreventionContract {
                 lifecycle_client.pause_for_fraud(&env.current_contract_address(), &campaign_id);
             }
         }
-
         score
     }
 }
 
-// External contract clients
-#[contract]
-pub struct CampaignLifecycleContract;
-#[contractimpl]
-impl CampaignLifecycleContract {
-    pub fn pause_for_fraud(env: Env, fraud_contract: Address, campaign_id: u64) {
-        let _ = (env, fraud_contract, campaign_id);
-    }
-}
+// External contract clients wrapped in a module to avoid symbol name conflicts
+mod mocks {
+    use super::*;
 
-#[contract]
-pub struct PublisherNetworkContract;
-#[contractimpl]
-impl PublisherNetworkContract {
-    pub fn suspend_publisher(env: Env, fraud_contract: Address, publisher: Address) {
-        let _ = (env, fraud_contract, publisher);
+    #[contract]
+    pub struct CampaignLifecycleContract;
+    #[contractimpl]
+    impl CampaignLifecycleContract {
+        pub fn pause_for_fraud(env: Env, fraud_contract: Address, campaign_id: u64) {
+            let _ = (env, fraud_contract, campaign_id);
+        }
     }
-}
 
-#[contract]
-pub struct EscrowVaultContract;
-#[contractimpl]
-impl EscrowVaultContract {
-    pub fn hold_for_fraud(env: Env, fraud_contract: Address, escrow_id: u64) {
-        let _ = (env, fraud_contract, escrow_id);
+    #[contract]
+    pub struct PublisherNetworkContract;
+    #[contractimpl]
+    impl PublisherNetworkContract {
+        pub fn suspend_publisher(env: Env, fraud_contract: Address, publisher: Address) {
+            let _ = (env, fraud_contract, publisher);
+        }
+    }
+
+    #[contract]
+    pub struct EscrowVaultContract;
+    #[contractimpl]
+    impl EscrowVaultContract {
+        pub fn hold_for_fraud(env: Env, fraud_contract: Address, escrow_id: u64) {
+            let _ = (env, fraud_contract, escrow_id);
+        }
     }
 }
 
