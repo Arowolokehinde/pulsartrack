@@ -307,6 +307,84 @@ impl MultisigTreasuryContract {
             .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
         env.storage().instance().get(&DataKey::Signers).unwrap()
     }
+
+    pub fn add_signer(env: Env, admin: Address, new_signer: Address) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized");
+        if admin != stored_admin {
+            panic!("unauthorized");
+        }
+
+        let mut signers: Vec<Address> = env.storage().instance().get(&DataKey::Signers).unwrap();
+        if signers.contains(&new_signer) {
+            panic!("already a signer");
+        }
+
+        signers.push_back(new_signer.clone());
+        env.storage().instance().set(&DataKey::Signers, &signers);
+
+        env.events().publish(
+            (symbol_short!("treasury"), symbol_short!("sgn_add")),
+            new_signer,
+        );
+    }
+
+    pub fn remove_signer(env: Env, admin: Address, signer: Address) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_LIFETIME_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+        admin.require_auth();
+
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .expect("not initialized");
+        if admin != stored_admin {
+            panic!("unauthorized");
+        }
+
+        let mut signers: Vec<Address> = env.storage().instance().get(&DataKey::Signers).unwrap();
+        let required: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::RequiredSigners)
+            .unwrap();
+
+        if !signers.contains(&signer) {
+            panic!("not a signer");
+        }
+
+        // Removing must not drop total signers below required threshold
+        if signers.len() as u32 - 1 < required {
+            panic!("cannot remove: would breach required signers threshold");
+        }
+
+        // Rebuild vec without the removed signer
+        let mut new_signers: Vec<Address> = Vec::new(&env);
+        for s in signers.iter() {
+            if s != signer {
+                new_signers.push_back(s);
+            }
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::Signers, &new_signers);
+
+        env.events().publish(
+            (symbol_short!("treasury"), symbol_short!("sgn_rem")),
+            signer,
+        );
+    }
 }
 
 mod test;

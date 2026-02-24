@@ -437,3 +437,93 @@ fn test_get_signers() {
     let stored = client.get_signers();
     assert_eq!(stored.len(), signers.len());
 }
+
+// signer management
+
+#[test]
+fn test_add_signer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _, _, _) = setup(&env);
+
+    let new_signer = Address::generate(&env);
+    client.add_signer(&admin, &new_signer);
+
+    let signers = client.get_signers();
+    assert_eq!(signers.len(), 4); // was 3, now 4
+    assert!(signers.contains(&new_signer));
+}
+
+#[test]
+#[should_panic(expected = "already a signer")]
+fn test_add_signer_duplicate() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, signers, _, _) = setup(&env);
+
+    let existing = signers.get(0).unwrap();
+    client.add_signer(&admin, &existing);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized")]
+fn test_add_signer_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _, _, _) = setup(&env);
+
+    let stranger = Address::generate(&env);
+    let new_signer = Address::generate(&env);
+    client.add_signer(&stranger, &new_signer);
+}
+
+#[test]
+fn test_remove_signer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, signers, _, _) = setup(&env);
+
+    let to_remove = signers.get(2).unwrap(); // remove 3rd; 2 remain >= required(2)
+    client.remove_signer(&admin, &to_remove);
+
+    let updated = client.get_signers();
+    assert_eq!(updated.len(), 2);
+    assert!(!updated.contains(&to_remove));
+}
+
+#[test]
+#[should_panic(expected = "cannot remove: would breach required signers threshold")]
+fn test_remove_signer_below_required() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, signers, _, _) = setup(&env);
+
+    // required=2, removing 2 signers would leave 1 < 2
+    let s1 = signers.get(0).unwrap();
+    let s2 = signers.get(1).unwrap();
+    client.remove_signer(&admin, &s1);
+    client.remove_signer(&admin, &s2); // this should panic
+}
+
+#[test]
+#[should_panic(expected = "not a signer")]
+fn test_remove_signer_nonexistent() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _, _, _) = setup(&env);
+
+    let ghost = Address::generate(&env);
+    client.remove_signer(&admin, &ghost);
+}
+
+#[test]
+#[should_panic(expected = "unauthorized")]
+fn test_remove_signer_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, signers, _, _) = setup(&env);
+
+    let stranger = Address::generate(&env);
+    let target = signers.get(0).unwrap();
+    client.remove_signer(&stranger, &target);
+}
