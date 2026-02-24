@@ -21,7 +21,7 @@ fn mint(env: &Env, token_addr: &Address, to: &Address, amount: i128) {
 fn setup(
     env: &Env,
 ) -> (
-    MultisigTreasuryContractClient,
+    MultisigTreasuryContractClient<'_>,
     Address,
     Vec<Address>,
     Address,
